@@ -16,25 +16,9 @@ jobs:
       - name: Update package list
         run: sudo apt-get update
 
-      - name: Install Xfce and dependencies
+      - name: Install Xfce4 and dependencies
         run: |
-          sudo DEBIAN_FRONTEND=noninteractive \
-          apt install --assume-yes xfce4 desktop-base dbus-x11 xscreensaver curl gnupg ca-certificates
-
-      - name: Configure Chrome Remote Desktop session
-        run: |
-          sudo bash -c 'echo "exec /etc/X11/Xsession /usr/bin/xfce4-session" > /etc/chrome-remote-desktop-session'
-
-      - name: Add Google APT repository for Chrome Remote Desktop
-        run: |
-          sudo install -d -m 0755 /usr/share/keyrings
-          curl -fsSL https://dl.google.com/linux/linux_signing_key.pub | sudo gpg --dearmor -o /usr/share/keyrings/google-linux.gpg
-          echo "deb [arch=amd64 signed-by=/usr/share/keyrings/google-linux.gpg] https://dl.google.com/linux/chrome-remote-desktop/deb/ stable main" | sudo tee /etc/apt/sources.list.d/google-chrome.list > /dev/null
-          sudo apt-get update
-
-      - name: Install Chrome Remote Desktop host
-        run: |
-          sudo DEBIAN_FRONTEND=noninteractive apt-get install --assume-yes chrome-remote-desktop
+          sudo DEBIAN_FRONTEND=noninteractive           apt install --assume-yes xfce4 desktop-base dbus-x11 xscreensaver curl gnupg ca-certificates netcat-openbsd
 
       - name: Download and install Discord
         run: |
@@ -42,5 +26,66 @@ jobs:
           sudo apt install ./discord.deb -y
           rm discord.deb
 
-      - name: Run sshx
-        run: curl -sSf https://sshx.io/get | sh -s run
+      - name: Install VS Codium
+        run: |
+          wget -qO - https://gitlab.com/paulcarroty/vscodium-deb-rpm-repo/raw/master/pub.gpg             | gpg --dearmor             | sudo dd of=/usr/share/keyrings/vscodium-archive-keyring.gpg
+          echo 'deb [ signed-by=/usr/share/keyrings/vscodium-archive-keyring.gpg ] https://download.vscodium.com/debs vscodium main'             | sudo tee /etc/apt/sources.list.d/vscodium.list
+          sudo apt-get update
+          sudo apt-get install -y codium
+
+      - name: Install Tailscale
+        run: |
+          curl -fsSL https://tailscale.com/install.sh | sh
+
+      - name: Start Tailscale + sshx and Keep Alive
+        run: |
+          # ── 1. Levantar Tailscale ──────────────────────────────────────
+          sudo tailscale up             --authkey="${{ secrets.TAILSCALE_AUTH_KEY }}"             --hostname="gh-runner-$GITHUB_RUN_ID"             --accept-dns=false
+
+          # Esperar IP
+          tsIP=""
+          retries=0
+          while [ -z "$tsIP" ] && [ $retries -lt 10 ]; do
+            tsIP=$(tailscale ip -4 2>/dev/null)
+            sleep 5
+            retries=$((retries + 1))
+          done
+
+          if [ -z "$tsIP" ]; then
+            echo "❌ Tailscale IP not assigned. Exiting."
+            exit 1
+          fi
+
+          echo ""
+          echo "═══════════════════════════════════════════════════"
+          echo "  🌐 TAILSCALE CONNECTED"
+          echo "  Address : $tsIP"
+          echo "  SSH User: runner"
+          echo "  Command : ssh runner@$tsIP"
+          echo "═══════════════════════════════════════════════════"
+          echo ""
+
+          # ── 2. Instalar y lanzar sshx ──────────────────────────────────
+          curl -sSf https://sshx.io/get | sh
+          echo ""
+          echo "🚀 Starting sshx session..."
+          sshx &
+          SSHX_PID=$!
+          sleep 3
+
+          # ── 3. Mostrar resumen final ───────────────────────────────────
+          echo ""
+          echo "═══════════════════════════════════════════════════"
+          echo "  ✅ SESSION ACTIVE — DO NOT CANCEL THIS STEP"
+          echo "═══════════════════════════════════════════════════"
+          echo "  🌐 Tailscale IP : $tsIP"
+          echo "  👤 SSH User     : runner"
+          echo "  🔗 sshx URL     : (see output above ↑)"
+          echo "═══════════════════════════════════════════════════"
+          echo ""
+
+          # ── 4. Mantener vivo el runner ─────────────────────────────────
+          while true; do
+            echo "[$(date '+%Y-%m-%d %H:%M:%S')] ⏳ Session active — Tailscale: $tsIP | sshx running"
+            sleep 300
+          done
