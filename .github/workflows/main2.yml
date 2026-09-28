@@ -16,16 +16,6 @@ jobs:
       - name: Setup macOS GUI & VNC Server Legacy
         shell: /bin/bash {0}
         run: |
-          sudo dscl . -create /Users/vncuser
-          sudo dscl . -create /Users/vncuser UserShell /bin/bash
-          sudo dscl . -create /Users/vncuser RealName "VNC User"
-          sudo dscl . -create /Users/vncuser UniqueID 502
-          sudo dscl . -create /Users/vncuser PrimaryGroupID 20
-          sudo dscl . -create /Users/vncuser NFSHomeDirectory /Users/vncuser
-          sudo dscl . -passwd /Users/vncuser "123456"
-          sudo dscl . -append /Groups/admin GroupMembership vncuser
-          sudo dscl . -append /Groups/_developer GroupMembership vncuser 2>/dev/null || true
-
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
             -activate \
             -configure \
@@ -36,15 +26,7 @@ jobs:
             -configure \
             -clientopts -setvnclegacy -vnclegacy yes \
             -clientopts -setvncpw -vncpw "123456" \
-            -restart -agent
-
-          echo "[*] Habilitando auto-login para vncuser..."
-          sudo defaults write /Library/Preferences/com.apple.loginwindow autoLoginUser vncuser
-          sudo defaults write /Library/Preferences/com.apple.loginwindow autoLoginUserUID -int 502
-
-          echo "[*] Habilitando pantalla compartida y acceso remoto a nivel de sistema..."
-          sudo launchctl enable system/com.apple.screensharing
-          sudo launchctl load -w /System/Library/LaunchDaemons/com.apple.screensharing.plist 2>/dev/null || true
+            -restart -agent -console
 
       - name: Install Cask Applications (Discord & VSCodium)
         shell: /bin/bash {0}
@@ -62,7 +44,6 @@ jobs:
       - name: Install and configure keep-alive daemon
         shell: /bin/bash {0}
         run: |
-          echo "[*] Instalando LaunchDaemon para mantener el display despierto..."
           sudo tee /Library/LaunchDaemons/com.github.keepdisplay.plist > /dev/null << 'PLIST'
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -96,8 +77,6 @@ jobs:
           sudo chmod 644 /Library/LaunchDaemons/com.github.keepdisplay.plist
           sudo launchctl load -w /Library/LaunchDaemons/com.github.keepdisplay.plist
           sleep 2
-          echo "[*] LaunchDaemon cargado. Verificando aserciones:"
-          sudo pmset -g assertions | grep -E "(PreventUserIdleDisplaySleep|PreventUserIdleSystemSleep)" || true
 
       - name: Start Tailscale and Keep Alive
         shell: /bin/bash {0}
@@ -130,7 +109,7 @@ jobs:
 
           sudo pmset -a disablesleep 1 sleep 0 displaysleep 0 disksleep 0
 
-          echo "[*] Inyectando permisos TCC para ARDAgent y screensharing..."
+          echo "[*] Inyectando permisos TCC para ARDAgent, WindowServer y screensharing..."
           sudo tccutil reset ScreenCapture 2>/dev/null || true
           sudo tccutil reset Accessibility 2>/dev/null || true
 
@@ -149,30 +128,16 @@ jobs:
               "INSERT OR REPLACE INTO access (service, client, client_type, auth_value, auth_reason, auth_version) VALUES (${entry});" 2>/dev/null || true
           done
 
-          echo "[*] Verificando TCC insertado:"
-          sudo sqlite3 "/Library/Application Support/com.apple.TCC/TCC.db" \
-            "SELECT service, client, auth_value FROM access WHERE service LIKE 'kTCCServiceScreenCapture%' OR service LIKE 'kTCCServiceAccessibility%';" 2>/dev/null || true
-
-          echo "[*] Forzando inicio de sesión gráfico para vncuser..."
-          sudo launchctl bootout user/502 2>/dev/null || true
+          echo "[*] Reiniciando ARDAgent para que se asocie a la sesión gráfica de 'runner'..."
+          sudo launchctl bootout system/com.apple.RemoteDesktop.agent 2>/dev/null || true
           sleep 2
-          sudo launchctl bootstrap user/502 /System/Library/LaunchAgents/com.apple.Finder.plist 2>/dev/null || true
-          sleep 3
-
-          echo "[*] Iniciando sesión de usuario gráfica para vncuser..."
-          sudo -u vncuser /usr/bin/open -a Finder 2>/dev/null || true
-          sleep 3
-
-          echo "[*] Reiniciando ARDAgent en el contexto de la sesión de usuario..."
-          sudo -u vncuser /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -restart -agent 2>/dev/null || \
-            sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -restart -agent
-
-          sleep 10
+          sudo launchctl bootstrap system /System/Library/LaunchDaemons/com.apple.RemoteDesktop.agent.plist 2>/dev/null || true
+          sleep 5
 
           echo "[*] Verificando que ARDAgent está escuchando en el puerto 5900..."
           sudo lsof -i :5900 || echo "[-] ADVERTENCIA: El puerto 5900 no está abierto aún."
 
-          echo "[*] Test de captura de pantalla (nativo de macOS 15)..."
+          echo "[*] Test de captura de pantalla..."
           sudo screencapture -x /tmp/test_capture.png 2>&1 || true
           if [ -f /tmp/test_capture.png ]; then
             echo "[+] Screen capture test OK: $(ls -la /tmp/test_capture.png)"
@@ -204,12 +169,11 @@ jobs:
             echo "[-] Screen capture test failed"
           fi
 
-          echo "[*] Current displays:"
-          system_profiler SPDisplaysDataType 2>/dev/null | head -40 || true
-
-          echo "[*] Verificando usuario de consola:"
+          echo "[*] Usuario de consola actual:"
           stat -f "%Su" /dev/console || true
-          who || true
+
+          echo "[*] Procesos de ARDAgent:"
+          ps aux | grep -i ARDAgent | grep -v grep || true
 
           echo ""
           echo "✅ Listo. Conéctate a $tsIP:5900 con la contraseña 123456"
