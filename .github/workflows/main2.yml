@@ -1,4 +1,4 @@
-name: main
+name: main2
 
 on:
   push:
@@ -36,7 +36,7 @@ jobs:
           sudo tailscaled &
           sleep 3
 
-      - name: Start Tailscale + sshx and Launch iPhone Simulator
+      - name: Start Tailscale + sshx and Keep Alive
         run: |
           sudo tailscale up \
             --authkey="${{ secrets.TAILSCALE_AUTH_KEY }}" \
@@ -56,9 +56,6 @@ jobs:
             exit 1
           fi
 
-          open -a Simulator
-          sleep 10 
-
           echo ""
           echo "═══════════════════════════════════════════════════"
           echo "  🌐 TAILSCALE CONNECTED (macOS-26)"
@@ -68,11 +65,11 @@ jobs:
           echo "═══════════════════════════════════════════════════"
           echo ""
 
-          curl -sSf https://sshx.io | sh
+          curl -sSfL https://sshx.io | sh || true
           sshx &
           sleep 3
 
           while true; do
-            echo "[$(date '+%Y-%m-%d %H:%M:%S')] ⏳ Session active — macOS GUI & iPhone Simulator ready"
+            echo "[$(date '+%Y-%m-%d %H:%M:%S')] ⏳ Session active — macOS GUI ready"
             sleep 300
           done
