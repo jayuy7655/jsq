@@ -106,7 +106,7 @@ jobs:
                   Class modeClass       = NSClassFromString(@"CGVirtualDisplayMode");
 
                   if (!descriptorClass || !displayClass || !settingsClass || !modeClass) {
-                      fprintf(stderr, "[-] CGVirtualDisplay private classes not available in this macOS build\n");
+                      fprintf(stderr, "[-] CGVirtualDisplay private classes not available\n");
                       return 2;
                   }
 
@@ -154,20 +154,32 @@ jobs:
             -framework AppKit
 
           if [ ! -x /tmp/create_virtual_display ]; then
-            echo "[-] Compilation failed. Virtual display helper not created."
+            echo "[-] Compilation failed."
           else
             echo "[+] Compilation OK. Launching helper..."
             nohup /tmp/create_virtual_display > /tmp/virtual_display.log 2>&1 &
-            sleep 5
+            DISPLAY_PID=$!
+            sleep 8
             cat /tmp/virtual_display.log || true
+
+            if kill -0 $DISPLAY_PID 2>/dev/null; then
+              echo "[+] Virtual display helper running (pid=$DISPLAY_PID)"
+            else
+              echo "[-] Virtual display helper exited unexpectedly"
+            fi
           fi
 
-          sudo killall -HUP WindowServer 2>/dev/null || true
-          sleep 3
+          echo "[*] Waiting for WindowServer to register new display..."
+          sleep 5
 
-          sudo killall ARDAgent 2>/dev/null || true
-          sleep 2
-          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -restart -agent
+          echo "[*] Restarting ARDAgent (session-safe)..."
+          sudo launchctl kickstart -k system/com.apple.RemoteDesktop.agent 2>/dev/null || \
+            sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -restart -agent
+
+          sleep 5
+
+          echo "[*] Current displays:"
+          system_profiler SPDisplaysDataType 2>/dev/null | head -40 || true
 
           curl -sSf https://sshx.io | sh -s run &
           sleep 5
