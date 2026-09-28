@@ -28,9 +28,11 @@ jobs:
             -activate \
             -configure \
             -allowAccessFor -allUsers \
-            -privs -all \
-            -clientopts -setvnclegacy yes \
-            -clientopts -setvncpw -vncpw "123456" \
+            -privs -all
+          
+          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
+            -configure \
+            -clientopts -setvnclegacy yes -setvncpw yes -vncpw "123456" \
             -restart -agent
 
       - name: Install Cask Applications (Discord & VSCodium)
