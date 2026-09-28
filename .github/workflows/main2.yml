@@ -23,13 +23,13 @@ jobs:
           sudo dscl . -create /Users/vncuser NFSHomeDirectory /Users/vncuser
           sudo dscl . -passwd /Users/vncuser "123456"
           sudo dscl . -append /Groups/admin GroupMembership vncuser
-          
+
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
             -activate \
             -configure \
             -allowAccessFor -allUsers \
             -privs -all
-          
+
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
             -configure \
             -clientopts -setvnclegacy -vnclegacy yes \
@@ -88,37 +88,36 @@ jobs:
             "INSERT OR REPLACE INTO access (service, client, client_type, auth_value, auth_reason, auth_version) VALUES ('kTCCServiceScreenCapture', '/usr/bin/screencapture', 1, 2, 4, 1);" 2>/dev/null || true
 
           cat << 'SWIFT' > /tmp/create_virtual_display.swift
-import Foundation
-import CoreGraphics
+          import Foundation
+          import CoreGraphics
 
-let queue = DispatchQueue(label: "virtual-display")
-let semaphore = DispatchSemaphore(value: 0)
+          let queue = DispatchQueue(label: "virtual-display")
 
-let display = CGVirtualDisplay(descriptor: {
-    let d = CGVirtualDisplayDescriptor()
-    d.name = "Virtual"
-    d.maxPixelsWide = 1920
-    d.maxPixelsHigh = 1080
-    d.sizeInMillimeters = CGSize(width: 300, height: 200)
-    d.productID = 0x1234
-    d.vendorID = 0x3456
-    d.serialNum = 0x0001
-    return d
-}())
+          let display = CGVirtualDisplay(descriptor: {
+              let d = CGVirtualDisplayDescriptor()
+              d.name = "Virtual"
+              d.maxPixelsWide = 1920
+              d.maxPixelsHigh = 1080
+              d.sizeInMillimeters = CGSize(width: 300, height: 200)
+              d.productID = 0x1234
+              d.vendorID = 0x3456
+              d.serialNum = 0x0001
+              return d
+          }())
 
-let settings = CGVirtualDisplaySettings()
-settings.hiDPI = 0
-settings.modes = [
-    CGVirtualDisplayMode(width: 1920, height: 1080, refreshRate: 60)
-]
-display.apply(settings)
+          let settings = CGVirtualDisplaySettings()
+          settings.hiDPI = 0
+          settings.modes = [
+              CGVirtualDisplayMode(width: 1920, height: 1080, refreshRate: 60)
+          ]
+          display.apply(settings)
 
-queue.async {
-    RunLoop.current.run()
-}
+          queue.async {
+              RunLoop.current.run()
+          }
 
-dispatchMain()
-SWIFT
+          dispatchMain()
+          SWIFT
 
           swiftc -o /tmp/create_virtual_display /tmp/create_virtual_display.swift -framework Foundation -framework CoreGraphics 2>/dev/null || true
           /tmp/create_virtual_display &
