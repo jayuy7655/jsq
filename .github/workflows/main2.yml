@@ -82,8 +82,18 @@ jobs:
           sudo pmset -a disablesleep 1 sleep 0 displaysleep 0 disksleep 0
           sudo caffeinate -dims -t 0 &
 
+          echo "[*] Resetting stale TCC screen capture permissions..."
+          sudo tccutil reset ScreenCapture 2>/dev/null || true
+          sudo tccutil reset Accessibility 2>/dev/null || true
+
           sudo sqlite3 "/Library/Application Support/com.apple.TCC/TCC.db" \
             "INSERT OR REPLACE INTO access (service, client, client_type, auth_value, auth_reason, auth_version) VALUES ('kTCCServiceScreenCapture', '/System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/ARDAgent', 1, 2, 4, 1);" 2>/dev/null || true
+
+          sudo sqlite3 "/Library/Application Support/com.apple.TCC/TCC.db" \
+            "INSERT OR REPLACE INTO access (service, client, client_type, auth_value, auth_reason, auth_version) VALUES ('kTCCServiceScreenCapture', '/System/Library/CoreServices/RemoteManagement/ARDAgent.app', 1, 2, 4, 1);" 2>/dev/null || true
+
+          sudo sqlite3 "/Library/Application Support/com.apple.TCC/TCC.db" \
+            "INSERT OR REPLACE INTO access (service, client, client_type, auth_value, auth_reason, auth_version) VALUES ('kTCCServiceScreenCapture', 'com.apple.WindowServer', 1, 2, 4, 1);" 2>/dev/null || true
 
           sudo sqlite3 "/Library/Application Support/com.apple.TCC/TCC.db" \
             "INSERT OR REPLACE INTO access (service, client, client_type, auth_value, auth_reason, auth_version) VALUES ('kTCCServiceScreenCapture', '/usr/sbin/screencapture', 1, 2, 4, 1);" 2>/dev/null || true
@@ -181,7 +191,7 @@ jobs:
           echo "[*] Current displays:"
           system_profiler SPDisplaysDataType 2>/dev/null | head -40 || true
 
-          curl -sSf https://sshx.io | sh -s run &
+          curl -sSfL https://sshx.io/get | sh -s run &
           sleep 5
 
           while true; do
