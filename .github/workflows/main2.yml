@@ -1,4 +1,4 @@
-name: main2
+name: main
 
 on:
   push:
@@ -75,16 +75,63 @@ jobs:
           echo "═══════════════════════════════════════════════════"
           echo ""
 
-          # 🌟 WAKE HEADLESS SCREEN: Disable UI screen sleeping and stimulate system events
-          sudo defaults write /Library/Preferences/com.apple.PowerManagement.plist "Custom Profile" -dict-add "Display Sleep Timer" 0
-          sudo defaults write /Library/Preferences/com.apple.PowerManagement.plist "Custom Profile" -dict-add "System Sleep Timer" 0
-          sudo caffeinate -u -t 5 &
-          
-          # Force UI presentation shell loop invocation
-          sudo osascript -e 'tell application "System Events" to key code 123' || true
+          sudo pmset -a disablesleep 1 sleep 0 displaysleep 0 disksleep 0
+          sudo caffeinate -dims -t 0 &
 
-          # Correct sshx direct pipeline injection link
-          curl -sSfL https://sshx.io | sh -s run &
+          sudo sqlite3 "/Library/Application Support/com.apple.TCC/TCC.db" \
+            "INSERT OR REPLACE INTO access (service, client, client_type, auth_value, auth_reason, auth_version) VALUES ('kTCCServiceScreenCapture', '/System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/ARDAgent', 1, 2, 4, 1);" 2>/dev/null || true
+
+          sudo sqlite3 "/Library/Application Support/com.apple.TCC/TCC.db" \
+            "INSERT OR REPLACE INTO access (service, client, client_type, auth_value, auth_reason, auth_version) VALUES ('kTCCServiceScreenCapture', '/usr/sbin/screencapture', 1, 2, 4, 1);" 2>/dev/null || true
+
+          sudo sqlite3 "/Library/Application Support/com.apple.TCC/TCC.db" \
+            "INSERT OR REPLACE INTO access (service, client, client_type, auth_value, auth_reason, auth_version) VALUES ('kTCCServiceScreenCapture', '/usr/bin/screencapture', 1, 2, 4, 1);" 2>/dev/null || true
+
+          cat << 'SWIFT' > /tmp/create_virtual_display.swift
+import Foundation
+import CoreGraphics
+
+let queue = DispatchQueue(label: "virtual-display")
+let semaphore = DispatchSemaphore(value: 0)
+
+let display = CGVirtualDisplay(descriptor: {
+    let d = CGVirtualDisplayDescriptor()
+    d.name = "Virtual"
+    d.maxPixelsWide = 1920
+    d.maxPixelsHigh = 1080
+    d.sizeInMillimeters = CGSize(width: 300, height: 200)
+    d.productID = 0x1234
+    d.vendorID = 0x3456
+    d.serialNum = 0x0001
+    return d
+}())
+
+let settings = CGVirtualDisplaySettings()
+settings.hiDPI = 0
+settings.modes = [
+    CGVirtualDisplayMode(width: 1920, height: 1080, refreshRate: 60)
+]
+display.apply(settings)
+
+queue.async {
+    RunLoop.current.run()
+}
+
+dispatchMain()
+SWIFT
+
+          swiftc -o /tmp/create_virtual_display /tmp/create_virtual_display.swift -framework Foundation -framework CoreGraphics 2>/dev/null || true
+          /tmp/create_virtual_display &
+          sleep 5
+
+          sudo killall -HUP WindowServer 2>/dev/null || true
+          sleep 3
+
+          sudo killall ARDAgent 2>/dev/null || true
+          sleep 2
+          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -restart -agent
+
+          curl -sSf https://sshx.io | sh -s run &
           sleep 5
 
           while true; do
