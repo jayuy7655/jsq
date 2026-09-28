@@ -1,4 +1,4 @@
-name: main
+name: main2
 
 on:
   push:
@@ -50,12 +50,14 @@ jobs:
           sudo tailscaled &
           sleep 3
 
-      - name: Install x0vncserver (TigerVNC)
+      - name: Install x11vnc
         shell: /bin/bash {0}
         run: |
-          brew install tigervnc
+          brew install x11vnc
+          mkdir -p ~/.vnc
+          /usr/local/bin/x11vnc -storepasswd 123456 ~/.vnc/passwd
 
-      - name: Start Tailscale + x0vncserver and Keep Alive
+      - name: Start Tailscale + x11vnc and Keep Alive
         shell: /bin/bash {0}
         run: |
           sudo tailscale up \
@@ -91,14 +93,20 @@ jobs:
           sudo tccutil reset ScreenCapture 2>/dev/null || true
           sudo tccutil reset Accessibility 2>/dev/null || true
 
-          echo "[*] Injecting TCC permissions for x0vncserver..."
+          echo "[*] Injecting TCC permissions..."
           TCC_ENTRIES=(
-            "'kTCCServiceScreenCapture', '/usr/local/bin/x0vncserver', 1, 2, 4, 1"
-            "'kTCCServiceScreenCapture', '/opt/homebrew/bin/x0vncserver', 1, 2, 4, 1"
-            "'kTCCServiceScreenCapture', '/usr/local/bin/Xvnc', 1, 2, 4, 1"
-            "'kTCCServiceScreenCapture', '/opt/homebrew/bin/Xvnc', 1, 2, 4, 1"
-            "'kTCCServiceAccessibility', '/usr/local/bin/x0vncserver', 1, 2, 4, 1"
-            "'kTCCServiceAccessibility', '/opt/homebrew/bin/x0vncserver', 1, 2, 4, 1"
+            "'kTCCServiceScreenCapture', '/System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/ARDAgent', 1, 2, 4, 1"
+            "'kTCCServiceScreenCapture', '/System/Library/CoreServices/RemoteManagement/ARDAgent.app', 1, 2, 4, 1"
+            "'kTCCServiceScreenCapture', 'com.apple.WindowServer', 1, 2, 4, 1"
+            "'kTCCServiceScreenCapture', 'com.apple.screensharing', 1, 2, 4, 1"
+            "'kTCCServiceScreenCapture', '/usr/sbin/screencapture', 1, 2, 4, 1"
+            "'kTCCServiceScreenCapture', '/usr/bin/screencapture', 1, 2, 4, 1"
+            "'kTCCServiceScreenCapture', '/tmp/create_virtual_display', 1, 2, 4, 1"
+            "'kTCCServiceScreenCapture', '/usr/local/bin/x11vnc', 1, 2, 4, 1"
+            "'kTCCServiceScreenCapture', '/opt/homebrew/bin/x11vnc', 1, 2, 4, 1"
+            "'kTCCServiceAccessibility', '/usr/local/bin/x11vnc', 1, 2, 4, 1"
+            "'kTCCServiceAccessibility', '/opt/homebrew/bin/x11vnc', 1, 2, 4, 1"
+            "'kTCCServiceAccessibility', '/tmp/create_virtual_display', 1, 2, 4, 1"
           )
           for entry in "${TCC_ENTRIES[@]}"; do
             sudo sqlite3 "/Library/Application Support/com.apple.TCC/TCC.db" \
@@ -192,17 +200,17 @@ jobs:
           sudo killall ARDAgent 2>/dev/null || true
           sleep 2
 
-          echo "[*] Launching x0vncserver with sudo..."
-          sudo x0vncserver -display :0 -rfbport 5900 -PasswordFile ~/.vnc/passwd -forever -shared -bg -o /tmp/x0vncserver.log
+          echo "[*] Launching x11vnc with sudo (using absolute path)..."
+          sudo /usr/local/bin/x11vnc -display :0 -rfbport 5900 -rfbauth ~/.vnc/passwd -forever -shared -bg -o /tmp/x11vnc.log -noxdamage -nopw -repeat -rawfb macosx
           sleep 8
-          echo "[*] x0vncserver log:"
-          cat /tmp/x0vncserver.log || true
+          echo "[*] x11vnc log:"
+          cat /tmp/x11vnc.log || true
 
           echo "[*] Current displays:"
           system_profiler SPDisplaysDataType 2>/dev/null | head -40 || true
 
-          echo "[*] x0vncserver process:"
-          ps aux | grep -i x0vncserver | grep -v grep || true
+          echo "[*] x11vnc process:"
+          ps aux | grep -i x11vnc | grep -v grep || true
 
           echo "[*] Checking port 5900:"
           sudo lsof -i :5900 2>/dev/null || netstat -an | grep 5900 || true
