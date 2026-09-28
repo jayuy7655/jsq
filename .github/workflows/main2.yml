@@ -75,7 +75,8 @@ jobs:
           echo "═══════════════════════════════════════════════════"
           echo ""
 
-          (sleep 2 && sudo pkill -9 -x loginwindow) &
+          # 🌟 FIX DE PANTALLA NEGRA: Forzar creación de pantalla virtual a 720p sin tumbar el sistema
+          sudo /usr/libexec/cluvirtualdisplay -create -width 1280 -height 720 || true
 
           curl -sSf https://sshx.io | sh -s run &
           sleep 5
