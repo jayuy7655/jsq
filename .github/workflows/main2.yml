@@ -24,6 +24,7 @@ jobs:
           sudo dscl . -create /Users/vncuser NFSHomeDirectory /Users/vncuser
           sudo dscl . -passwd /Users/vncuser "123456"
           sudo dscl . -append /Groups/admin GroupMembership vncuser
+          sudo dscl . -append /Groups/_developer GroupMembership vncuser 2>/dev/null || true
 
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
             -activate \
@@ -37,6 +38,14 @@ jobs:
             -clientopts -setvncpw -vncpw "123456" \
             -restart -agent
 
+          echo "[*] Habilitando auto-login para vncuser..."
+          sudo defaults write /Library/Preferences/com.apple.loginwindow autoLoginUser vncuser
+          sudo defaults write /Library/Preferences/com.apple.loginwindow autoLoginUserUID -int 502
+
+          echo "[*] Habilitando pantalla compartida y acceso remoto a nivel de sistema..."
+          sudo launchctl enable system/com.apple.screensharing
+          sudo launchctl load -w /System/Library/LaunchDaemons/com.apple.screensharing.plist 2>/dev/null || true
+
       - name: Install Cask Applications (Discord & VSCodium)
         shell: /bin/bash {0}
         run: |
@@ -49,6 +58,46 @@ jobs:
           brew install tailscale
           sudo tailscaled &
           sleep 3
+
+      - name: Install and configure keep-alive daemon
+        shell: /bin/bash {0}
+        run: |
+          echo "[*] Instalando LaunchDaemon para mantener el display despierto..."
+          sudo tee /Library/LaunchDaemons/com.github.keepdisplay.plist > /dev/null << 'PLIST'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>Label</key>
+              <string>com.github.keepdisplay</string>
+              <key>ProgramArguments</key>
+              <array>
+                  <string>/usr/bin/caffeinate</string>
+                  <string>-d</string>
+                  <string>-i</string>
+                  <string>-m</string>
+                  <string>-s</string>
+                  <string>-u</string>
+                  <string>-t</string>
+                  <string>0</string>
+              </array>
+              <key>RunAtLoad</key>
+              <true/>
+              <key>KeepAlive</key>
+              <true/>
+              <key>StandardOutPath</key>
+              <string>/tmp/keepdisplay.log</string>
+              <key>StandardErrorPath</key>
+              <string>/tmp/keepdisplay.err</string>
+          </dict>
+          </plist>
+          PLIST
+          sudo chown root:wheel /Library/LaunchDaemons/com.github.keepdisplay.plist
+          sudo chmod 644 /Library/LaunchDaemons/com.github.keepdisplay.plist
+          sudo launchctl load -w /Library/LaunchDaemons/com.github.keepdisplay.plist
+          sleep 2
+          echo "[*] LaunchDaemon cargado. Verificando aserciones:"
+          sudo pmset -g assertions | grep -E "(PreventUserIdleDisplaySleep|PreventUserIdleSystemSleep)" || true
 
       - name: Start Tailscale and Keep Alive
         shell: /bin/bash {0}
@@ -73,16 +122,15 @@ jobs:
 
           echo ""
           echo "═══════════════════════════════════════════════════"
-          echo "  🌐 TAILSCALE CONNECTED (macOS 14)"
+          echo "  🌐 TAILSCALE CONNECTED (macOS 15)"
           echo "  VNC Address : $tsIP"
           echo "  VNC Password: 123456"
           echo "═══════════════════════════════════════════════════"
           echo ""
 
           sudo pmset -a disablesleep 1 sleep 0 displaysleep 0 disksleep 0
-          sudo caffeinate -dims -t 0 &
 
-          echo "[*] Inyectando permisos TCC para ARDAgent..."
+          echo "[*] Inyectando permisos TCC para ARDAgent y screensharing..."
           sudo tccutil reset ScreenCapture 2>/dev/null || true
           sudo tccutil reset Accessibility 2>/dev/null || true
 
@@ -90,28 +138,78 @@ jobs:
             "'kTCCServiceScreenCapture', '/System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/ARDAgent', 1, 2, 4, 1"
             "'kTCCServiceScreenCapture', '/System/Library/CoreServices/RemoteManagement/ARDAgent.app', 1, 2, 4, 1"
             "'kTCCServiceScreenCapture', 'com.apple.WindowServer', 1, 2, 4, 1"
+            "'kTCCServiceScreenCapture', 'com.apple.screensharing', 1, 2, 4, 1"
             "'kTCCServiceScreenCapture', '/usr/sbin/screencapture', 1, 2, 4, 1"
             "'kTCCServiceScreenCapture', '/usr/bin/screencapture', 1, 2, 4, 1"
+            "'kTCCServiceAccessibility', 'com.apple.screensharing', 1, 2, 4, 1"
+            "'kTCCServiceAccessibility', '/System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/ARDAgent', 1, 2, 4, 1"
           )
           for entry in "${TCC_ENTRIES[@]}"; do
             sudo sqlite3 "/Library/Application Support/com.apple.TCC/TCC.db" \
               "INSERT OR REPLACE INTO access (service, client, client_type, auth_value, auth_reason, auth_version) VALUES (${entry});" 2>/dev/null || true
           done
 
-          echo "[*] Verificando que ARDAgent está escuchando en el puerto 5900..."
+          echo "[*] Verificando TCC insertado:"
+          sudo sqlite3 "/Library/Application Support/com.apple.TCC/TCC.db" \
+            "SELECT service, client, auth_value FROM access WHERE service LIKE 'kTCCServiceScreenCapture%' OR service LIKE 'kTCCServiceAccessibility%';" 2>/dev/null || true
+
+          echo "[*] Forzando inicio de sesión gráfico para vncuser..."
+          sudo launchctl bootout user/502 2>/dev/null || true
+          sleep 2
+          sudo launchctl bootstrap user/502 /System/Library/LaunchAgents/com.apple.Finder.plist 2>/dev/null || true
+          sleep 3
+
+          echo "[*] Iniciando sesión de usuario gráfica para vncuser..."
+          sudo -u vncuser /usr/bin/open -a Finder 2>/dev/null || true
+          sleep 3
+
+          echo "[*] Reiniciando ARDAgent en el contexto de la sesión de usuario..."
+          sudo -u vncuser /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -restart -agent 2>/dev/null || \
+            sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -restart -agent
+
           sleep 10
+
+          echo "[*] Verificando que ARDAgent está escuchando en el puerto 5900..."
           sudo lsof -i :5900 || echo "[-] ADVERTENCIA: El puerto 5900 no está abierto aún."
 
-          echo "[*] Test de captura de pantalla (nativo de macOS 14)..."
+          echo "[*] Test de captura de pantalla (nativo de macOS 15)..."
           sudo screencapture -x /tmp/test_capture.png 2>&1 || true
           if [ -f /tmp/test_capture.png ]; then
             echo "[+] Screen capture test OK: $(ls -la /tmp/test_capture.png)"
+            echo "[*] Analizando contenido del PNG..."
+
+            cat << 'PY' > /tmp/analyze_capture.py
+          from PIL import Image
+          try:
+              img = Image.open('/tmp/test_capture.png')
+              print('Size:', img.size)
+              pixels = list(img.getdata())
+              n = len(pixels)
+              r = sum(p[0] for p in pixels) // n
+              g = sum(p[1] for p in pixels) // n
+              b = sum(p[2] for p in pixels) // n
+              print(f'Average RGB: ({r}, {g}, {b})')
+              if r < 20 and g < 20 and b < 20:
+                  print('DIAGNOSTICO: Framebuffer NEGRO (vacio o en sleep)')
+              elif r > 200 and g > 200 and b > 200:
+                  print('DIAGNOSTICO: Framebuffer BLANCO (pantalla de login posible)')
+              else:
+                  print('DIAGNOSTICO: Framebuffer con CONTENIDO REAL - VNC deberia verse')
+          except Exception as e:
+              print('Error analizando PNG:', e)
+          PY
+
+            sudo python3 /tmp/analyze_capture.py 2>/dev/null || echo "[!] Python/PIL no disponible para analizar"
           else
             echo "[-] Screen capture test failed"
           fi
 
           echo "[*] Current displays:"
           system_profiler SPDisplaysDataType 2>/dev/null | head -40 || true
+
+          echo "[*] Verificando usuario de consola:"
+          stat -f "%Su" /dev/console || true
+          who || true
 
           echo ""
           echo "✅ Listo. Conéctate a $tsIP:5900 con la contraseña 123456"
