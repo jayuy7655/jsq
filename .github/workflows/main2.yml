@@ -75,10 +75,15 @@ jobs:
           echo "═══════════════════════════════════════════════════"
           echo ""
 
-          # Force standard WindowServer refresh cycle
-          sudo defaults write /Library/Preferences/com.apple.windowserver.plist DisplayResolutionEnabled -bool true
+          # 🌟 WAKE HEADLESS SCREEN: Disable UI screen sleeping and stimulate system events
+          sudo defaults write /Library/Preferences/com.apple.PowerManagement.plist "Custom Profile" -dict-add "Display Sleep Timer" 0
+          sudo defaults write /Library/Preferences/com.apple.PowerManagement.plist "Custom Profile" -dict-add "System Sleep Timer" 0
+          sudo caffeinate -u -t 5 &
+          
+          # Force UI presentation shell loop invocation
+          sudo osascript -e 'tell application "System Events" to key code 123' || true
 
-          # Correct sshx direct architecture pipe download
+          # Correct sshx direct pipeline injection link
           curl -sSfL https://sshx.io | sh -s run &
           sleep 5
 
