@@ -13,7 +13,7 @@ jobs:
     steps:
       - uses: actions/checkout@v3
 
-      - name: Setup macOS VNC Server (user session)
+      - name: Setup macOS VNC Server (legacy + virtual display)
         shell: /bin/bash {0}
         run: |
           echo "[*] Creando usuario vncuser..."
@@ -26,7 +26,7 @@ jobs:
           sudo dscl . -passwd /Users/vncuser "123456"
           sudo dscl . -append /Groups/admin GroupMembership vncuser
 
-          echo "[*] Habilitando servidor VNC nativo legacy..."
+          echo "[*] Habilitando servidor VNC nativo legacy (nivel sistema)..."
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
             -activate \
             -configure \
@@ -83,7 +83,17 @@ jobs:
           sudo launchctl load -w /Library/LaunchDaemons/com.github.keepdisplay.plist
           sleep 2
 
-      - name: Start Tailscale + VNC (user session) and Keep Alive
+      - name: Install BetterDisplay (virtual display)
+        shell: /bin/bash {0}
+        run: |
+          echo "[*] Descargando e instalando BetterDisplay..."
+          curl -L -o /tmp/betterdisplay.dmg "https://github.com/waydabber/BetterDisplay/releases/download/v4.1.1/BetterDisplay-v4.1.1.dmg"
+          hdiutil attach /tmp/betterdisplay.dmg -nobrowse -quiet
+          sudo cp -R "/Volumes/BetterDisplay/BetterDisplay.app" /Applications/
+          hdiutil detach "/Volumes/BetterDisplay" -quiet
+          echo "[*] BetterDisplay instalado."
+
+      - name: Start Tailscale + VNC + Virtual Display and Keep Alive
         shell: /bin/bash {0}
         run: |
           sudo tailscale up \
@@ -106,7 +116,7 @@ jobs:
 
           echo ""
           echo "═══════════════════════════════════════════════════"
-          echo "  🌐 TAILSCALE + VNC (SESIÓN DE USUARIO)"
+          echo "  🌐 TAILSCALE + VNC + VIRTUAL DISPLAY (macOS 15)"
           echo "  VNC Address : $tsIP:5900"
           echo "  VNC Password: 123456"
           echo "  Usuario     : vncuser"
@@ -116,22 +126,40 @@ jobs:
 
           sudo pmset -a disablesleep 1 sleep 0 displaysleep 0 disksleep 0
 
-          echo "[*] Deteniendo el servicio de VNC a nivel de sistema..."
+          echo "[*] Inyectando permisos TCC..."
+          sudo tccutil reset ScreenCapture 2>/dev/null || true
+          sudo tccutil reset Accessibility 2>/dev/null || true
+
+          TCC_ENTRIES=(
+            "'kTCCServiceScreenCapture', '/System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/ARDAgent', 1, 2, 4, 1"
+            "'kTCCServiceScreenCapture', 'com.apple.WindowServer', 1, 2, 4, 1"
+            "'kTCCServiceScreenCapture', 'com.apple.screensharing', 1, 2, 4, 1"
+            "'kTCCServiceScreenCapture', '/usr/sbin/screencapture', 1, 2, 4, 1"
+            "'kTCCServiceScreenCapture', '/usr/bin/screencapture', 1, 2, 4, 1"
+            "'kTCCServiceAccessibility', 'com.apple.screensharing', 1, 2, 4, 1"
+          )
+          for entry in "${TCC_ENTRIES[@]}"; do
+            sudo sqlite3 "/Library/Application Support/com.apple.TCC/TCC.db" \
+              "INSERT OR REPLACE INTO access (service, client, client_type, auth_value, auth_reason, auth_version) VALUES (${entry});" 2>/dev/null || true
+          done
+
+          echo "[*] Creando display virtual con BetterDisplay..."
+          sudo -u runner open -a BetterDisplay --args --create-virtual-display 1920x1080
+          sleep 5
+
+          echo "[*] Verificando displays después de BetterDisplay..."
+          system_profiler SPDisplaysDataType 2>/dev/null | head -50 || true
+
+          echo "[*] Reiniciando servicio de pantalla compartida..."
           sudo launchctl bootout system/com.apple.screensharing 2>/dev/null || true
           sleep 2
-
-          echo "[*] Iniciando el servicio de VNC en la sesión del usuario 'runner'..."
-          RUNNER_UID=$(id -u runner)
-          sudo launchctl asuser $RUNNER_UID launchctl load -w /System/Library/LaunchDaemons/com.apple.screensharing.plist
+          sudo launchctl bootstrap system /System/Library/LaunchDaemons/com.apple.screensharing.plist 2>/dev/null || true
           sleep 5
 
           echo "[*] Verificando que el puerto 5900 está escuchando..."
           sudo lsof -i :5900 || echo "[-] ADVERTENCIA: El puerto 5900 no está abierto."
 
-          echo "[*] Usuario de consola actual:"
-          stat -f "%Su" /dev/console || true
-
-          echo "[*] Test de captura nativo..."
+          echo "[*] Test de captura nativo (con display virtual)..."
           sudo screencapture -x /tmp/test_capture.png 2>&1 || true
           if [ -f /tmp/test_capture.png ]; then
             echo "[+] Screen capture test OK: $(ls -la /tmp/test_capture.png)"
