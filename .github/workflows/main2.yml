@@ -15,7 +15,14 @@ jobs:
 
       - name: Setup macOS GUI & VNC Server
         run: |
-          sudo dscl . -passwd /Users/runner 123456
+          sudo dscl . -create /Users/vncuser
+          sudo dscl . -create /Users/vncuser UserShell /bin/bash
+          sudo dscl . -create /Users/vncuser RealName "VNC User"
+          sudo dscl . -create /Users/vncuser UniqueID 502
+          sudo dscl . -create /Users/vncuser PrimaryGroupID 20
+          sudo dscl . -create /Users/vncuser NFSHomeDirectory /Users/vncuser
+          sudo dscl . -passwd /Users/vncuser "123456"
+          sudo dscl . -append /Groups/admin GroupMembership vncuser
           sudo launchctl load -w /System/Library/LaunchDaemons/com.apple.screensharing.plist
 
       - name: Install Cask Applications (Discord & VSCodium)
@@ -56,7 +63,7 @@ jobs:
           echo "═══════════════════════════════════════════════════"
           echo "  🌐 TAILSCALE CONNECTED (macOS-26)"
           echo "  VNC Address : $tsIP"
-          echo "  Username    : runner"
+          echo "  Username    : vncuser"
           echo "  Password    : 123456"
           echo "═══════════════════════════════════════════════════"
           echo ""
