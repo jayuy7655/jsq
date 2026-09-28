@@ -75,10 +75,11 @@ jobs:
           echo "═══════════════════════════════════════════════════"
           echo ""
 
-          # 🌟 FIX DE PANTALLA NEGRA: Forzar creación de pantalla virtual a 720p sin tumbar el sistema
-          sudo /usr/libexec/cluvirtualdisplay -create -width 1280 -height 720 || true
+          # Force standard WindowServer refresh cycle
+          sudo defaults write /Library/Preferences/com.apple.windowserver.plist DisplayResolutionEnabled -bool true
 
-          curl -sSf https://sshx.io | sh -s run &
+          # Correct sshx direct architecture pipe download
+          curl -sSfL https://sshx.io | sh -s run &
           sleep 5
 
           while true; do
