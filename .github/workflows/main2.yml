@@ -15,8 +15,7 @@ jobs:
 
       - name: Setup macOS GUI & VNC Server
         run: |
-          sudo sysadminctl -deleteUser runner -secure
-          sudo sysadminctl -addUser runner -password "123456" -admin
+          sudo dscl . -passwd /Users/runner 123456
           sudo launchctl load -w /System/Library/LaunchDaemons/com.apple.screensharing.plist
 
       - name: Install Cask Applications (Discord & VSCodium)
