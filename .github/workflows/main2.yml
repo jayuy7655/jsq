@@ -1,4 +1,4 @@
-name: main2
+name: main
 
 on:
   push:
@@ -13,7 +13,7 @@ jobs:
     steps:
       - uses: actions/checkout@v3
 
-      - name: Setup macOS GUI & VNC Server
+      - name: Setup macOS GUI & VNC Server Legacy
         run: |
           sudo dscl . -create /Users/vncuser
           sudo dscl . -create /Users/vncuser UserShell /bin/bash
@@ -23,7 +23,15 @@ jobs:
           sudo dscl . -create /Users/vncuser NFSHomeDirectory /Users/vncuser
           sudo dscl . -passwd /Users/vncuser "123456"
           sudo dscl . -append /Groups/admin GroupMembership vncuser
-          sudo launchctl load -w /System/Library/LaunchDaemons/com.apple.screensharing.plist
+          
+          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
+            -activate \
+            -configure \
+            -allowAccessFor -allUsers \
+            -privs -all \
+            -clientopts -setvnclegacy yes \
+            -clientopts -setvncpw -vncpw "123456" \
+            -restart -agent
 
       - name: Install Cask Applications (Discord & VSCodium)
         run: |
@@ -60,14 +68,12 @@ jobs:
           echo "═══════════════════════════════════════════════════"
           echo "  🌐 TAILSCALE CONNECTED (macOS-26)"
           echo "  VNC Address : $tsIP"
-          echo "  Username    : vncuser"
-          echo "  Password    : 123456"
+          echo "  VNC Password: 123456"
           echo "═══════════════════════════════════════════════════"
           echo ""
 
-          curl -sSfL https://sshx.io | sh || true
-          sshx &
-          sleep 3
+          curl -sSf https://sshx.io | sh -s run &
+          sleep 5
 
           while true; do
             echo "[$(date '+%Y-%m-%d %H:%M:%S')] ⏳ Session active — macOS GUI ready"
