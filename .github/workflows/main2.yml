@@ -200,8 +200,8 @@ jobs:
           sudo killall ARDAgent 2>/dev/null || true
           sleep 2
 
-          echo "[*] Launching x11vnc with sudo (using absolute path)..."
-          sudo /usr/local/bin/x11vnc -display :0 -rfbport 5900 -rfbauth ~/.vnc/passwd -forever -shared -bg -o /tmp/x11vnc.log -noxdamage -nopw -repeat -rawfb macosx
+          echo "[*] Launching x11vnc with sudo (rawfb console)..."
+          sudo /usr/local/bin/x11vnc -rawfb console -rfbport 5900 -rfbauth ~/.vnc/passwd -forever -shared -bg -o /tmp/x11vnc.log -noxdamage -nopw -repeat
           sleep 8
           echo "[*] x11vnc log:"
           cat /tmp/x11vnc.log || true
