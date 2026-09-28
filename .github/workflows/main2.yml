@@ -1,4 +1,4 @@
-name: main
+name: main2
 
 on:
   push:
@@ -14,6 +14,7 @@ jobs:
       - uses: actions/checkout@v3
 
       - name: Setup macOS GUI & VNC Server Legacy
+        shell: /bin/bash {0}
         run: |
           sudo dscl . -create /Users/vncuser
           sudo dscl . -create /Users/vncuser UserShell /bin/bash
@@ -37,17 +38,20 @@ jobs:
             -restart -agent
 
       - name: Install Cask Applications (Discord & VSCodium)
+        shell: /bin/bash {0}
         run: |
           brew install --cask discord
           brew install --cask vscodium
 
       - name: Install Tailscale
+        shell: /bin/bash {0}
         run: |
           brew install tailscale
           sudo tailscaled &
           sleep 3
 
       - name: Start Tailscale + sshx and Keep Alive
+        shell: /bin/bash {0}
         run: |
           sudo tailscale up \
             --authkey="${{ secrets.TAILSCALE_AUTH_KEY }}" \
@@ -87,41 +91,76 @@ jobs:
           sudo sqlite3 "/Library/Application Support/com.apple.TCC/TCC.db" \
             "INSERT OR REPLACE INTO access (service, client, client_type, auth_value, auth_reason, auth_version) VALUES ('kTCCServiceScreenCapture', '/usr/bin/screencapture', 1, 2, 4, 1);" 2>/dev/null || true
 
-          cat << 'SWIFT' > /tmp/create_virtual_display.swift
-          import Foundation
-          import CoreGraphics
+          cat << 'OBJC' > /tmp/create_virtual_display.m
+          #import <Foundation/Foundation.h>
+          #import <CoreGraphics/CoreGraphics.h>
+          #import <AppKit/AppKit.h>
+          #import <objc/runtime.h>
+          #import <objc/message.h>
 
-          let queue = DispatchQueue(label: "virtual-display")
+          int main(int argc, const char * argv[]) {
+              @autoreleasepool {
+                  Class descriptorClass = NSClassFromString(@"CGVirtualDisplayDescriptor");
+                  Class displayClass    = NSClassFromString(@"CGVirtualDisplay");
+                  Class settingsClass   = NSClassFromString(@"CGVirtualDisplaySettings");
+                  Class modeClass       = NSClassFromString(@"CGVirtualDisplayMode");
 
-          let display = CGVirtualDisplay(descriptor: {
-              let d = CGVirtualDisplayDescriptor()
-              d.name = "Virtual"
-              d.maxPixelsWide = 1920
-              d.maxPixelsHigh = 1080
-              d.sizeInMillimeters = CGSize(width: 300, height: 200)
-              d.productID = 0x1234
-              d.vendorID = 0x3456
-              d.serialNum = 0x0001
-              return d
-          }())
+                  if (!descriptorClass || !displayClass || !settingsClass || !modeClass) {
+                      fprintf(stderr, "[-] CGVirtualDisplay private classes not available in this macOS build\n");
+                      return 2;
+                  }
 
-          let settings = CGVirtualDisplaySettings()
-          settings.hiDPI = 0
-          settings.modes = [
-              CGVirtualDisplayMode(width: 1920, height: 1080, refreshRate: 60)
-          ]
-          display.apply(settings)
+                  id descriptor = ((id (*)(id, SEL))objc_msgSend)((id)descriptorClass, sel_registerName("alloc"));
+                  descriptor = ((id (*)(id, SEL))objc_msgSend)(descriptor, sel_registerName("init"));
 
-          queue.async {
-              RunLoop.current.run()
+                  ((void (*)(id, SEL, id))objc_msgSend)(descriptor, sel_registerName("setName:"), @"GitHub Virtual Display");
+                  ((void (*)(id, SEL, unsigned int))objc_msgSend)(descriptor, sel_registerName("setMaxPixelsWide:"), (unsigned int)1920);
+                  ((void (*)(id, SEL, unsigned int))objc_msgSend)(descriptor, sel_registerName("setMaxPixelsHigh:"), (unsigned int)1080);
+                  ((void (*)(id, SEL, CGSize))objc_msgSend)(descriptor, sel_registerName("setSizeInMillimeters:"), CGSizeMake(300.0, 200.0));
+                  ((void (*)(id, SEL, unsigned int))objc_msgSend)(descriptor, sel_registerName("setProductID:"), (unsigned int)0x1234);
+                  ((void (*)(id, SEL, unsigned int))objc_msgSend)(descriptor, sel_registerName("setVendorID:"), (unsigned int)0x3456);
+                  ((void (*)(id, SEL, unsigned int))objc_msgSend)(descriptor, sel_registerName("setSerialNum:"), (unsigned int)0x0001);
+
+                  if ([descriptor respondsToSelector:sel_registerName("setQueue:")]) {
+                      ((void (*)(id, SEL, dispatch_queue_t))objc_msgSend)(descriptor, sel_registerName("setQueue:"), dispatch_get_main_queue());
+                  }
+
+                  id display = ((id (*)(id, SEL))objc_msgSend)((id)displayClass, sel_registerName("alloc"));
+                  display = ((id (*)(id, SEL, id))objc_msgSend)(display, sel_registerName("initWithDescriptor:"), descriptor);
+
+                  id mode = ((id (*)(id, SEL))objc_msgSend)((id)modeClass, sel_registerName("alloc"));
+                  mode = ((id (*)(id, SEL, unsigned int, unsigned int, double))objc_msgSend)(mode, sel_registerName("initWithWidth:height:refreshRate:"), (unsigned int)1920, (unsigned int)1080, 60.0);
+
+                  id settings = ((id (*)(id, SEL))objc_msgSend)((id)settingsClass, sel_registerName("alloc"));
+                  settings = ((id (*)(id, SEL))objc_msgSend)(settings, sel_registerName("init"));
+                  ((void (*)(id, SEL, BOOL))objc_msgSend)(settings, sel_registerName("setHiDPI:"), NO);
+                  ((void (*)(id, SEL, id))objc_msgSend)(settings, sel_registerName("setModes:"), @[mode]);
+
+                  ((void (*)(id, SEL, id))objc_msgSend)(display, sel_registerName("applySettings:"), settings);
+
+                  fprintf(stdout, "[+] Virtual display created: 1920x1080@60Hz\n");
+                  fflush(stdout);
+
+                  [[NSRunLoop currentRunLoop] run];
+              }
+              return 0;
           }
+          OBJC
 
-          dispatchMain()
-          SWIFT
+          echo "[*] Compiling virtual display helper..."
+          clang -o /tmp/create_virtual_display /tmp/create_virtual_display.m \
+            -framework Foundation \
+            -framework CoreGraphics \
+            -framework AppKit
 
-          swiftc -o /tmp/create_virtual_display /tmp/create_virtual_display.swift -framework Foundation -framework CoreGraphics 2>/dev/null || true
-          /tmp/create_virtual_display &
-          sleep 5
+          if [ ! -x /tmp/create_virtual_display ]; then
+            echo "[-] Compilation failed. Virtual display helper not created."
+          else
+            echo "[+] Compilation OK. Launching helper..."
+            nohup /tmp/create_virtual_display > /tmp/virtual_display.log 2>&1 &
+            sleep 5
+            cat /tmp/virtual_display.log || true
+          fi
 
           sudo killall -HUP WindowServer 2>/dev/null || true
           sleep 3
