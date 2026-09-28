@@ -2,8 +2,7 @@ name: main2
 
 on:
   push:
-    branches:
-      - main
+    branches: [ main ]
   workflow_dispatch:
 
 jobs:
@@ -13,10 +12,9 @@ jobs:
     steps:
       - uses: actions/checkout@v3
 
-      - name: Setup macOS VNC Server (legacy + virtual display)
+      - name: Setup VNC legacy
         shell: /bin/bash {0}
         run: |
-          echo "[*] Creando usuario vncuser..."
           sudo dscl . -create /Users/vncuser
           sudo dscl . -create /Users/vncuser UserShell /bin/bash
           sudo dscl . -create /Users/vncuser RealName "VNC User"
@@ -26,18 +24,11 @@ jobs:
           sudo dscl . -passwd /Users/vncuser "123456"
           sudo dscl . -append /Groups/admin GroupMembership vncuser
 
-          echo "[*] Habilitando servidor VNC nativo legacy (nivel sistema)..."
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
-            -activate \
-            -configure \
-            -allowAccessFor -allUsers \
-            -privs -all
-
+            -activate -configure -allowAccessFor -allUsers -privs -all
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
-            -configure \
-            -clientopts -setvnclegacy -vnclegacy yes \
-            -clientopts -setvncpw -vncpw "123456" \
-            -restart -agent -console
+            -configure -clientopts -setvnclegacy -vnclegacy yes \
+            -clientopts -setvncpw -vncpw "123456" -restart -agent -console
 
       - name: Install Tailscale
         shell: /bin/bash {0}
@@ -46,7 +37,13 @@ jobs:
           sudo tailscaled &
           sleep 3
 
-      - name: Install and configure keep-alive daemon
+      - name: Install BetterDisplay + CLI
+        shell: /bin/bash {0}
+        run: |
+          brew install --cask betterdisplay
+          brew install waydabber/betterdisplay/betterdisplaycli
+
+      - name: Keep-alive daemon
         shell: /bin/bash {0}
         run: |
           sudo tee /Library/LaunchDaemons/com.github.keepdisplay.plist > /dev/null << 'PLIST'
@@ -54,27 +51,17 @@ jobs:
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
           <plist version="1.0">
           <dict>
-              <key>Label</key>
-              <string>com.github.keepdisplay</string>
+              <key>Label</key><string>com.github.keepdisplay</string>
               <key>ProgramArguments</key>
               <array>
                   <string>/usr/bin/caffeinate</string>
-                  <string>-d</string>
-                  <string>-i</string>
-                  <string>-m</string>
-                  <string>-s</string>
-                  <string>-u</string>
-                  <string>-t</string>
-                  <string>0</string>
+                  <string>-d</string><string>-i</string><string>-m</string>
+                  <string>-s</string><string>-u</string><string>-t</string><string>0</string>
               </array>
-              <key>RunAtLoad</key>
-              <true/>
-              <key>KeepAlive</key>
-              <true/>
-              <key>StandardOutPath</key>
-              <string>/tmp/keepdisplay.log</string>
-              <key>StandardErrorPath</key>
-              <string>/tmp/keepdisplay.err</string>
+              <key>RunAtLoad</key><true/>
+              <key>KeepAlive</key><true/>
+              <key>StandardOutPath</key><string>/tmp/keepdisplay.log</string>
+              <key>StandardErrorPath</key><string>/tmp/keepdisplay.err</string>
           </dict>
           </plist>
           PLIST
@@ -83,17 +70,7 @@ jobs:
           sudo launchctl load -w /Library/LaunchDaemons/com.github.keepdisplay.plist
           sleep 2
 
-      - name: Install BetterDisplay (virtual display)
-        shell: /bin/bash {0}
-        run: |
-          echo "[*] Descargando e instalando BetterDisplay..."
-          curl -L -o /tmp/betterdisplay.dmg "https://github.com/waydabber/BetterDisplay/releases/download/v4.1.1/BetterDisplay-v4.1.1.dmg"
-          hdiutil attach /tmp/betterdisplay.dmg -nobrowse -quiet
-          sudo cp -R "/Volumes/BetterDisplay/BetterDisplay.app" /Applications/
-          hdiutil detach "/Volumes/BetterDisplay" -quiet
-          echo "[*] BetterDisplay instalado."
-
-      - name: Start Tailscale + VNC + Virtual Display and Keep Alive
+      - name: Start Tailscale + VNC + Virtual Display
         shell: /bin/bash {0}
         run: |
           sudo tailscale up \
@@ -108,28 +85,40 @@ jobs:
             sleep 5
             retries=$((retries + 1))
           done
-
-          if [ -z "$tsIP" ]; then
-            echo "❌ Tailscale IP not assigned. Exiting."
-            exit 1
-          fi
+          [ -z "$tsIP" ] && { echo "❌ Tailscale IP not assigned."; exit 1; }
 
           echo ""
           echo "═══════════════════════════════════════════════════"
           echo "  🌐 TAILSCALE + VNC + VIRTUAL DISPLAY (macOS 15)"
           echo "  VNC Address : $tsIP:5900"
           echo "  VNC Password: 123456"
-          echo "  Usuario     : vncuser"
-          echo "  Password Sys: 123456"
           echo "═══════════════════════════════════════════════════"
           echo ""
 
           sudo pmset -a disablesleep 1 sleep 0 displaysleep 0 disksleep 0
-
-          echo "[*] Inyectando permisos TCC..."
           sudo tccutil reset ScreenCapture 2>/dev/null || true
           sudo tccutil reset Accessibility 2>/dev/null || true
 
+          echo "[*] Lanzando BetterDisplay en segundo plano..."
+          open -a BetterDisplay --args --headless
+          sleep 8
+
+          echo "[*] Habilitando CLI access en BetterDisplay..."
+          defaults write com.waydabber.BetterDisplay CLIEnabled -bool true
+          sleep 2
+
+          echo "[*] Creando display virtual con betterdisplaycli..."
+          betterdisplaycli create -devicetype=virtualscreen -virtualscreenname=GitHubVNC -aspectWidth=16 -aspectHeight=9 -resolution=1920x1080 || echo "[-] betterdisplaycli create falló"
+          sleep 5
+
+          echo "[*] Conectando el display virtual..."
+          betterdisplaycli set -namelike=GitHubVNC -connected=on || echo "[-] betterdisplaycli set falló"
+          sleep 5
+
+          echo "[*] Displays después de BetterDisplay:"
+          system_profiler SPDisplaysDataType 2>/dev/null | head -60 || true
+
+          echo "[*] Inyectando TCC para ARDAgent y screensharing..."
           TCC_ENTRIES=(
             "'kTCCServiceScreenCapture', '/System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/ARDAgent', 1, 2, 4, 1"
             "'kTCCServiceScreenCapture', 'com.apple.WindowServer', 1, 2, 4, 1"
@@ -143,35 +132,24 @@ jobs:
               "INSERT OR REPLACE INTO access (service, client, client_type, auth_value, auth_reason, auth_version) VALUES (${entry});" 2>/dev/null || true
           done
 
-          echo "[*] Creando display virtual con BetterDisplay..."
-          sudo -u runner open -a BetterDisplay --args --create-virtual-display 1920x1080
-          sleep 5
-
-          echo "[*] Verificando displays después de BetterDisplay..."
-          system_profiler SPDisplaysDataType 2>/dev/null | head -50 || true
-
-          echo "[*] Reiniciando servicio de pantalla compartida..."
+          echo "[*] Reiniciando screensharing a nivel de sistema..."
           sudo launchctl bootout system/com.apple.screensharing 2>/dev/null || true
           sleep 2
           sudo launchctl bootstrap system /System/Library/LaunchDaemons/com.apple.screensharing.plist 2>/dev/null || true
           sleep 5
 
-          echo "[*] Verificando que el puerto 5900 está escuchando..."
-          sudo lsof -i :5900 || echo "[-] ADVERTENCIA: El puerto 5900 no está abierto."
+          echo "[*] Puerto 5900:"
+          sudo lsof -i :5900 || echo "[-] Puerto 5900 no abierto"
 
-          echo "[*] Test de captura nativo (con display virtual)..."
+          echo "[*] Test de captura:"
           sudo screencapture -x /tmp/test_capture.png 2>&1 || true
-          if [ -f /tmp/test_capture.png ]; then
-            echo "[+] Screen capture test OK: $(ls -la /tmp/test_capture.png)"
-          else
-            echo "[-] Screen capture test failed"
-          fi
+          ls -la /tmp/test_capture.png 2>/dev/null || echo "[-] No PNG"
 
           echo ""
-          echo "✅ Listo. Conéctate a $tsIP:5900 con la contraseña 123456"
+          echo "✅ Listo. Conéctate a $tsIP:5900 con contraseña 123456"
           echo ""
 
           while true; do
-            echo "[$(date '+%Y-%m-%d %H:%M:%S')] ⏳ Sesión activa — VNC listo en $tsIP:5900"
+            echo "[$(date '+%Y-%m-%d %H:%M:%S')] ⏳ Sesión activa"
             sleep 300
           done
