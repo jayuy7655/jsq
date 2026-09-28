@@ -13,7 +13,7 @@ jobs:
     steps:
       - uses: actions/checkout@v3
 
-      - name: Setup macOS VNC Server (legacy native)
+      - name: Setup macOS VNC Server (user session)
         shell: /bin/bash {0}
         run: |
           echo "[*] Creando usuario vncuser..."
@@ -38,16 +38,6 @@ jobs:
             -clientopts -setvnclegacy -vnclegacy yes \
             -clientopts -setvncpw -vncpw "123456" \
             -restart -agent -console
-
-          echo "[*] Habilitando pantalla compartida a nivel de sistema..."
-          sudo launchctl enable system/com.apple.screensharing 2>/dev/null || true
-          sudo launchctl load -w /System/Library/LaunchDaemons/com.apple.screensharing.plist 2>/dev/null || true
-
-      - name: Install Cask Applications (Discord & VSCodium)
-        shell: /bin/bash {0}
-        run: |
-          brew install --cask discord
-          brew install --cask vscodium
 
       - name: Install Tailscale
         shell: /bin/bash {0}
@@ -93,7 +83,7 @@ jobs:
           sudo launchctl load -w /Library/LaunchDaemons/com.github.keepdisplay.plist
           sleep 2
 
-      - name: Start Tailscale + VNC and Keep Alive
+      - name: Start Tailscale + VNC (user session) and Keep Alive
         shell: /bin/bash {0}
         run: |
           sudo tailscale up \
@@ -116,7 +106,7 @@ jobs:
 
           echo ""
           echo "═══════════════════════════════════════════════════"
-          echo "  🌐 TAILSCALE + VNC NATIVO (macOS 15)"
+          echo "  🌐 TAILSCALE + VNC (SESIÓN DE USUARIO)"
           echo "  VNC Address : $tsIP:5900"
           echo "  VNC Password: 123456"
           echo "  Usuario     : vncuser"
@@ -126,8 +116,16 @@ jobs:
 
           sudo pmset -a disablesleep 1 sleep 0 displaysleep 0 disksleep 0
 
-          echo "[*] Verificando que el puerto 5900 está escuchando..."
+          echo "[*] Deteniendo el servicio de VNC a nivel de sistema..."
+          sudo launchctl bootout system/com.apple.screensharing 2>/dev/null || true
+          sleep 2
+
+          echo "[*] Iniciando el servicio de VNC en la sesión del usuario 'runner'..."
+          RUNNER_UID=$(id -u runner)
+          sudo launchctl asuser $RUNNER_UID launchctl load -w /System/Library/LaunchDaemons/com.apple.screensharing.plist
           sleep 5
+
+          echo "[*] Verificando que el puerto 5900 está escuchando..."
           sudo lsof -i :5900 || echo "[-] ADVERTENCIA: El puerto 5900 no está abierto."
 
           echo "[*] Usuario de consola actual:"
