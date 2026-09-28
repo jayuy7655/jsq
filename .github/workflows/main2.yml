@@ -1,0 +1,64 @@
+name: main2
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-26-intel
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Setup macOS GUI & VNC Server
+        run: |
+          sudo dscl . -passwd /Users/runner "123456"
+
+          sudo launchctl load -w /System/Library/LaunchDaemons/com.apple.screensharing.plist
+
+      - name: Install Tailscale
+        run: |
+          brew install tailscale
+          sudo tailscaled &
+          sleep 3
+
+      - name: Start Tailscale + sshx and Keep Alive
+        run: |
+          sudo tailscale up \
+            --authkey="${{ secrets.TAILSCALE_AUTH_KEY }}" \
+            --hostname="gh-mac-runner-$GITHUB_RUN_ID" \
+            --accept-dns=false
+
+          tsIP=""
+          retries=0
+          while [ -z "$tsIP" ] && [ $retries -lt 10 ]; do
+            tsIP=$(tailscale ip -4 2>/dev/null)
+            sleep 5
+            retries=$((retries + 1))
+          done
+
+          if [ -z "$tsIP" ]; then
+            echo "❌ Tailscale IP not assigned. Exiting."
+            exit 1
+          fi
+
+          echo ""
+          echo "═══════════════════════════════════════════════════"
+          echo "  🌐 TAILSCALE CONNECTED (macOS)"
+          echo "  VNC Address : $tsIP"
+          echo "  Username    : runner"
+          echo "  Password    : TuContrasenaSegura123"
+          echo "═══════════════════════════════════════════════════"
+          echo ""
+
+          curl -sSf https://sshx.io/get | sh
+          sshx &
+          sleep 3
+
+          while true; do
+            echo "[$(date '+%Y-%m-%d %H:%M:%S')] ⏳ Session active — macOS GUI Available over VNC"
+            sleep 300
+          done
