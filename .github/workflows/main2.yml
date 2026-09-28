@@ -75,8 +75,7 @@ jobs:
           echo "═══════════════════════════════════════════════════"
           echo ""
 
-          # 🌟 FIX DE PANTALLA NEGRA: Forzar el reinicio de la ventana gráfica principal
-          sudo pkill -x loginwindow || true
+          (sleep 2 && sudo pkill -9 -x loginwindow) &
 
           curl -sSf https://sshx.io | sh -s run &
           sleep 5
