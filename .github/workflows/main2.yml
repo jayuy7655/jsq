@@ -1,4 +1,4 @@
-name: main2
+name: main
 
 on:
   push:
@@ -15,9 +15,14 @@ jobs:
 
       - name: Setup macOS GUI & VNC Server
         run: |
-          sudo dscl . -passwd /Users/runner "123456"
-
+          sudo sysadminctl -deleteUser runner -secure
+          sudo sysadminctl -addUser runner -password "123456" -admin
           sudo launchctl load -w /System/Library/LaunchDaemons/com.apple.screensharing.plist
+
+      - name: Install Cask Applications (Discord & VSCodium)
+        run: |
+          brew install --cask discord
+          brew install --cask vscodium
 
       - name: Install Tailscale
         run: |
@@ -25,7 +30,7 @@ jobs:
           sudo tailscaled &
           sleep 3
 
-      - name: Start Tailscale + sshx and Keep Alive
+      - name: Start Tailscale + sshx and Launch iPhone Simulator
         run: |
           sudo tailscale up \
             --authkey="${{ secrets.TAILSCALE_AUTH_KEY }}" \
@@ -45,20 +50,23 @@ jobs:
             exit 1
           fi
 
+          open -a Simulator
+          sleep 10 
+
           echo ""
           echo "═══════════════════════════════════════════════════"
-          echo "  🌐 TAILSCALE CONNECTED (macOS)"
+          echo "  🌐 TAILSCALE CONNECTED (macOS-26)"
           echo "  VNC Address : $tsIP"
           echo "  Username    : runner"
-          echo "  Password    : TuContrasenaSegura123"
+          echo "  Password    : 123456"
           echo "═══════════════════════════════════════════════════"
           echo ""
 
-          curl -sSf https://sshx.io/get | sh
+          curl -sSf https://sshx.io | sh
           sshx &
           sleep 3
 
           while true; do
-            echo "[$(date '+%Y-%m-%d %H:%M:%S')] ⏳ Session active — macOS GUI Available over VNC"
+            echo "[$(date '+%Y-%m-%d %H:%M:%S')] ⏳ Session active — macOS GUI & iPhone Simulator ready"
             sleep 300
           done
